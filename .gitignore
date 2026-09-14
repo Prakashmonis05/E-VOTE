@@ -1,0 +1,133 @@
+# ============================================
+# DEPENDENCIES
+# ============================================
+/backend/node_modules/
+/frontend/node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ============================================
+# ENVIRONMENT VARIABLES
+# ============================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# ============================================
+# NEXT.JS (Frontend)
+# ============================================
+/frontend/.next/
+/frontend/out/
+/frontend/build/
+/frontend/.turbo/
+/frontend/dist/
+/frontend/.static/
+/frontend/.cache/
+
+# ============================================
+# EXPRESS (Backend)
+# ============================================
+/backend/dist/
+/backend/build/
+/backend/.turbo/
+/backend/cache/
+
+# ============================================
+# PRISMA (Database)
+# ============================================
+/backend/prisma/.env
+/backend/prisma/dev.db
+/backend/prisma/dev.db-journal
+
+# ============================================
+# UPLOADS & GENERATED FILES
+# ============================================
+/backend/uploads/*
+!backend/uploads/.gitkeep
+
+# ============================================
+# IDE & EDITOR
+# ============================================
+.vscode/
+.vscode-server/
+.idea/
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# ============================================
+# OS FILES
+# ============================================
+.DS_Store
+Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# ============================================
+# DEBUG & LOGGING
+# ============================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# ============================================
+# TESTING
+# ============================================
+/coverage/
+/backend/coverage/
+/frontend/coverage/
+.nyc_output/
+
+# ============================================
+# TYPESCRIPT
+# ============================================
+*.tsbuildinfo
+/frontend/next-env.d.ts
+
+# ============================================
+# VERCEL
+# ============================================
+.vercel/
+.vercelignore
+
+# ============================================
+# MISC
+# ============================================
+*.pem
+*.key
+*.crt
+.DS_Store
+node_modules/
+dist/
+build/
+
+# ============================================
+# DATABASE FILES
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+
+# ============================================
+# OS SPECIFIC
+# ============================================
+.env.production
+.env.staging

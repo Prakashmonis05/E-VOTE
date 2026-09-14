@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------
+// ENUMS
+// ----------------------------------------------------
+
+enum ElectionStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum VoterStatus {
+  APPROVED
+  DECLINED
+  PENDING
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+}
+
+// ----------------------------------------------------
+// MODELS
+// ----------------------------------------------------
+
+model Admin {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  username     String?   @unique
+  passwordHash String    @map("password_hash")
+  firstname    String
+  lastname     String
+  photo        String?   @default("")
+  role         AdminRole @default(ADMIN)
+  createdOn    DateTime  @default(now()) @map("created_on")
+  updatedOn    DateTime  @updatedAt @map("updated_on")
+
+  // Relationships
+  electionsCreated  Election[]         @relation("AdminCreatedElections")
+  adminLogs         AdminLog[]
+  preApprovedEmails PreApprovedEmail[] @relation("AdminPreApprovedEmails")
+
+  @@map("admin")
+}
+
+model AdminLog {
+  id        Int      @id @default(autoincrement())
+  adminId   Int?     @map("admin_id")
+  action    String
+  targetId  String?  @map("target_id")
+  metadata  Json?
+  ipAddress String?  @map("ip_address")
+  timestamp DateTime @default(now())
+
+  // Relationships
+  admin Admin? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([timestamp])
+  @@map("admin_logs")
+}
+
+model Voter {
+  id           Int         @id @default(autoincrement())
+  email        String      @unique
+  votersId     String      @unique @map("voters_id")
+  passwordHash String      @map("password_hash")
+  firstname    String
+  lastname     String
+  photo        String?     @default("")
+  status       VoterStatus @default(PENDING)
+  createdOn    DateTime    @default(now()) @map("created_on")
+  updatedOn    DateTime    @updatedAt @map("updated_on")
+
+  // Relationships
+  accessGrants   VoterElectionAccess[]
+  participations VoterParticipation[]
+
+  @@map("voters")
+}
+
+model PreApprovedEmail {
+  id         Int      @id @default(autoincrement())
+  email      String
+  electionId Int      @map("election_id")
+  addedById  Int?     @map("added_by_id")
+  createdOn  DateTime @default(now()) @map("created_on")
+
+  // Relationships
+  election Election @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  addedBy  Admin?   @relation("AdminPreApprovedEmails", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@unique([email, electionId])
+  @@index([electionId])
+  @@map("pre_approved_emails")
+}
+
+model Election {
+  id            Int            @id @default(autoincrement())
+  title         String
+  description   String?
+  accessCode    String         @unique @map("access_code")
+  startDate     DateTime       @map("start_date")
+  endDate       DateTime       @map("end_date")
+  status        ElectionStatus @default(PENDING)
+  resultsPublic Boolean        @default(false) @map("results_public")
+  createdOn     DateTime       @default(now()) @map("created_on")
+  updatedOn     DateTime       @updatedAt @map("updated_on")
+  createdById   Int?           @map("created_by_id")
+
+  // Relationships
+  createdBy         Admin?                @relation("AdminCreatedElections", fields: [createdById], references: [id], onDelete: SetNull)
+  positions         Position[]
+  votes             Vote[]
+  accessGrants      VoterElectionAccess[]
+  participations    VoterParticipation[]
+  preApprovedEmails PreApprovedEmail[]
+
+  @@index([status])
+  @@map("elections")
+}
+
+model Position {
+  id          Int      @id @default(autoincrement())
+  electionId  Int      @map("election_id")
+  description String
+  maxVote     Int      @default(1) @map("max_vote")
+  priority    Int      @default(1)
+  createdOn   DateTime @default(now()) @map("created_on")
+  updatedOn   DateTime @updatedAt @map("updated_on")
+
+  // Relationships
+  election   Election    @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  candidates Candidate[]
+  votes      Vote[]
+
+  @@unique([electionId, priority])
+  @@map("positions")
+}
+
+model Candidate {
+  id         Int      @id @default(autoincrement())
+  positionId Int      @map("position_id")
+  firstname  String
+  lastname   String
+  photo      String?  @default("")
+  platform   String?  @default("")
+  createdOn  DateTime @default(now()) @map("created_on")
+  updatedOn  DateTime @updatedAt @map("updated_on")
+
+  // Relationships
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  votes    Vote[]
+
+  @@index([positionId])
+  @@map("candidates")
+}
+
+model VoterElectionAccess {
+  id         Int      @id @default(autoincrement())
+  voterId    Int      @map("voter_id")
+  electionId Int      @map("election_id")
+  grantedOn  DateTime @default(now()) @map("granted_on")
+
+  // Relationships
+  voter    Voter    @relation(fields: [voterId], references: [id], onDelete: Cascade)
+  election Election @relation(fields: [electionId], references: [id], onDelete: Cascade)
+
+  @@unique([voterId, electionId])
+  @@index([electionId])
+  @@map("voter_election_access")
+}
+
+model VoterParticipation {
+  id           Int      @id @default(autoincrement())
+  voterId      Int      @map("voter_id")
+  electionId   Int      @map("election_id")
+  receiptToken String   @unique @default(uuid()) @map("receipt_token")
+  votedAt      DateTime @default(now()) @map("voted_at")
+
+  // Relationships
+  voter    Voter    @relation(fields: [voterId], references: [id], onDelete: Cascade)
+  election Election @relation(fields: [electionId], references: [id], onDelete: Cascade)
+
+  @@unique([voterId, electionId])
+  @@index([electionId])
+  @@map("voter_participations")
+}
+
+model Vote {
+  id          Int      @id @default(autoincrement())
+  electionId  Int      @map("election_id")
+  positionId  Int      @map("position_id")
+  candidateId Int      @map("candidate_id")
+  createdOn   DateTime @default(now()) @map("created_on")
+
+  // Relationships (Strictly Anonymous: NO voter link!)
+  election  Election  @relation(fields: [electionId], references: [id], onDelete: Cascade)
+  position  Position  @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([electionId])
+  @@index([positionId])
+  @@index([candidateId])
+  @@map("votes")
+}
