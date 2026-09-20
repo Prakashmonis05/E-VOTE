@@ -3,5 +3,8 @@
     "src",
     ".env"
   ],
-  "ext": "js,mjs,cjs,json,env"
+  "ext": "js,mjs,cjs,json,env",
+  "ignoreRoot": [".git"],
+  "delay": 200,
+  "legacyWatch": true
 }

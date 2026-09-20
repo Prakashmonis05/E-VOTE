@@ -3,8 +3,26 @@ const cors = require('cors');
 const path = require('path');
 const dotenv = require('dotenv');
 
-dotenv.config({ path: path.resolve(__dirname, '../.env'), override: true });
-dotenv.config({ override: true });
+// =====================================================
+// ENVIRONMENT VARIABLES
+// =====================================================
+
+const envPath = path.resolve(__dirname, '../.env');
+
+dotenv.config({
+  path: envPath,
+  override: true
+});
+
+// =====================================================
+// PRISMA
+// =====================================================
+
+const { prisma } = require('./prisma');
+
+// =====================================================
+// ROUTES
+// =====================================================
 
 const authRoutes = require('./routes/auth.routes');
 const electionRoutes = require('./routes/election.routes');
@@ -14,10 +32,17 @@ const voterRoutes = require('./routes/voter.routes');
 const voteRoutes = require('./routes/vote.routes');
 const adminRoutes = require('./routes/admin.routes');
 
+// =====================================================
+// APP
+// =====================================================
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// CORS configuration supporting single or comma-separated FRONTEND_URL, localhost, and Vercel
+// =====================================================
+// CORS
+// =====================================================
+
 const rawFrontendUrls = (process.env.FRONTEND_URL || 'http://localhost:3000')
   .split(',')
   .map((u) => u.trim().replace(/\/+$/, ''))
@@ -25,47 +50,88 @@ const rawFrontendUrls = (process.env.FRONTEND_URL || 'http://localhost:3000')
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow non-browser requests (e.g. server-to-server, curl, Postman)
-    if (!origin) return callback(null, true);
-
-    const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
-    const isVercel = /\.vercel\.app$/.test(origin);
-    const isAllowed = rawFrontendUrls.includes(origin) || rawFrontendUrls.includes('*');
-
-    if (isLocalhost || isVercel || isAllowed) {
+    // Allow requests without Origin
+    // Example: Postman, curl, server-to-server
+    if (!origin) {
       return callback(null, true);
     }
 
-    // Default allow if FRONTEND_URL is not specifically set
-    if (!process.env.FRONTEND_URL) {
+    // Allow localhost during development
+    const isLocalhost =
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
+    // Allow explicitly configured frontend URLs
+    const isAllowed =
+      rawFrontendUrls.includes(origin) ||
+      rawFrontendUrls.includes('*');
+
+    if (isLocalhost || isAllowed) {
       return callback(null, true);
     }
 
-    return callback(null, false);
+    return callback(new Error(`CORS blocked: ${origin}`));
   },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+
+  methods: [
+    'GET',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+    'OPTIONS'
+  ],
+
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization'
+  ],
+
   credentials: true,
-  maxAge: 86400 // cache preflight for 24 hours
+
+  maxAge: 86400
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // handle preflight for all routes
+app.options('*', cors(corsOptions));
 
-// Enable HTTP keep-alive so browser reuses TCP connections
+// =====================================================
+// KEEP-ALIVE
+// =====================================================
+
 app.use((req, res, next) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Keep-Alive', 'timeout=30');
   next();
 });
 
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+// =====================================================
+// BODY PARSING
+// =====================================================
 
-// Serve uploaded images statically
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use(express.json({
+  limit: '2mb'
+}));
 
-// API Routes
+app.use(express.urlencoded({
+  extended: true,
+  limit: '2mb'
+}));
+
+// =====================================================
+// STATIC FILES
+// =====================================================
+
+app.use(
+  '/uploads',
+  express.static(
+    path.join(__dirname, '../uploads')
+  )
+);
+
+// =====================================================
+// API ROUTES
+// =====================================================
+
 app.use('/api/auth', authRoutes);
 app.use('/api/elections', electionRoutes);
 app.use('/api/positions', positionRoutes);
@@ -74,16 +140,92 @@ app.use('/api/voters', voterRoutes);
 app.use('/api/votes', voteRoutes);
 app.use('/api/admin', adminRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+// =====================================================
+// HEALTH CHECK
+// =====================================================
+
+app.get('/api/health', async (req, res) => {
+  let dbStatus = 'Not Connected';
+  let maskedDb = 'Not Configured';
+
+  if (process.env.DATABASE_URL) {
+    try {
+      const url = new URL(process.env.DATABASE_URL);
+      maskedDb = `${url.protocol}//${url.username}:****@${url.host}${url.pathname}`;
+    } catch {
+      maskedDb = 'Configured';
+    }
+  }
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    dbStatus = 'Connected';
+  } catch (error) {
+    dbStatus = `Disconnected (${error.message})`;
+  }
+
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    port: process.env.PORT || 5000,
+    databaseStatus: dbStatus,
+    databaseHost: maskedDb,
+    frontendUrls: rawFrontendUrls
+  });
 });
 
-// Start Server
-if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`🚀 E-Vote Backend Server running on port ${PORT}`);
+// =====================================================
+// ERROR HANDLER
+// =====================================================
+
+app.use((err, req, res, next) => {
+  console.error('❌ Server error:', err.message);
+
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error'
   });
+});
+
+// =====================================================
+// START SERVER
+// =====================================================
+
+async function startServer() {
+  try {
+    // Actually test PostgreSQL connection
+    await prisma.$queryRaw`SELECT 1`;
+
+    console.log('✅ Database connected successfully');
+
+    app.listen(PORT, () => {
+      console.log(
+        `🚀 E-Vote Backend Server running on port ${PORT}`
+      );
+    });
+  } catch (error) {
+    console.error('❌ Database connection failed');
+    console.error(error.message);
+
+    // Do NOT start Express if database is unavailable
+    process.exit(1);
+  }
 }
 
-module.exports = { app };
+// =====================================================
+// START
+// =====================================================
+
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
+
+// =====================================================
+// EXPORT
+// =====================================================
+
+module.exports = {
+  app,
+  prisma
+};
