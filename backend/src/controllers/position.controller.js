@@ -33,6 +33,20 @@ const createPosition = async (req, res) => {
     }
 
     const eId = parseInt(electionId, 10);
+    const election = await prisma.election.findUnique({
+      where: { id: eId }
+    });
+
+    if (!election) {
+      return res.status(404).json({ error: true, message: 'Election not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && election.createdById && election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only add positions to your own elections' });
+    }
+
     const mVote = maxVote ? parseInt(maxVote, 10) : 1;
     let prio = priority ? parseInt(priority, 10) : 1;
 
@@ -75,11 +89,18 @@ const updatePosition = async (req, res) => {
     const { description, maxVote, priority } = req.body;
 
     const existing = await prisma.position.findUnique({
-      where: { id: posId }
+      where: { id: posId },
+      include: { election: true }
     });
 
     if (!existing) {
       return res.status(404).json({ error: true, message: 'Position not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && existing.election?.createdById && existing.election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only update positions in your own elections' });
     }
 
     const updated = await prisma.position.update({
@@ -103,11 +124,18 @@ const deletePosition = async (req, res) => {
     const posId = parseInt(idStr, 10);
 
     const existing = await prisma.position.findUnique({
-      where: { id: posId }
+      where: { id: posId },
+      include: { election: true }
     });
 
     if (!existing) {
       return res.status(404).json({ error: true, message: 'Position not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && existing.election?.createdById && existing.election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only delete positions in your own elections' });
     }
 
     await prisma.position.delete({
@@ -127,11 +155,18 @@ const reorderPosition = async (req, res) => {
     const { direction } = req.body;
 
     const current = await prisma.position.findUnique({
-      where: { id: posId }
+      where: { id: posId },
+      include: { election: true }
     });
 
     if (!current) {
       return res.status(404).json({ error: true, message: 'Position not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && current.election?.createdById && current.election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only reorder positions in your own elections' });
     }
 
     const neighbor = await prisma.position.findFirst({

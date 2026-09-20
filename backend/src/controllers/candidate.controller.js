@@ -40,9 +40,25 @@ const createCandidate = async (req, res) => {
       return res.status(400).json({ error: true, message: 'Position, firstname, and lastname are required' });
     }
 
+    const posId = parseInt(positionId, 10);
+    const position = await prisma.position.findUnique({
+      where: { id: posId },
+      include: { election: true }
+    });
+
+    if (!position) {
+      return res.status(404).json({ error: true, message: 'Position not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && position.election?.createdById && position.election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only add candidates to your own elections' });
+    }
+
     const candidate = await prisma.candidate.create({
       data: {
-        positionId: parseInt(positionId, 10),
+        positionId: posId,
         firstname,
         lastname,
         platform: platform || '',
@@ -73,11 +89,18 @@ const updateCandidate = async (req, res) => {
     const photo = req.file ? req.file.filename : req.body.photo;
 
     const existing = await prisma.candidate.findUnique({
-      where: { id: candId }
+      where: { id: candId },
+      include: { position: { include: { election: true } } }
     });
 
     if (!existing) {
       return res.status(404).json({ error: true, message: 'Candidate not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && existing.position?.election?.createdById && existing.position.election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only update candidates in your own elections' });
     }
 
     const updated = await prisma.candidate.update({
@@ -103,11 +126,18 @@ const deleteCandidate = async (req, res) => {
     const candId = parseInt(idStr, 10);
 
     const existing = await prisma.candidate.findUnique({
-      where: { id: candId }
+      where: { id: candId },
+      include: { position: { include: { election: true } } }
     });
 
     if (!existing) {
       return res.status(404).json({ error: true, message: 'Candidate not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && existing.position?.election?.createdById && existing.position.election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only delete candidates in your own elections' });
     }
 
     await prisma.candidate.delete({

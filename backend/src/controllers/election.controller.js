@@ -25,30 +25,64 @@ async function verifyAccessCode(inputCode, storedCode) {
 
 const getElections = async (req, res) => {
   try {
-    const isVoter = req.user?.role === 'voter';
-    const voterId = req.user?.id;
+    const roleLower = req.user?.role?.toLowerCase();
+    const isVoter = roleLower === 'voter';
+    const isAdmin = roleLower === 'admin' || roleLower === 'super_admin';
+    const isSuperAdmin = roleLower === 'super_admin';
+    const userId = req.user?.id;
 
-    if (isVoter && voterId) {
-      const allElections = await prisma.election.findMany({
-        orderBy: { createdOn: 'desc' }
+    if (isVoter && userId) {
+      const voter = await prisma.voter.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true }
       });
 
       const userAccesses = await prisma.voterElectionAccess.findMany({
-        where: { voterId }
+        where: { voterId: userId }
       });
       const accessMap = new Map(userAccesses.map((a) => [a.electionId, a.status]));
 
+      let preApprovedIds = [];
+      if (voter?.email) {
+        const preApprovedRecords = await prisma.preApprovedEmail.findMany({
+          where: { email: voter.email.toLowerCase().trim() },
+          select: { electionId: true }
+        });
+        preApprovedIds = preApprovedRecords.map((p) => p.electionId);
+      }
+
+      const allowedElectionIds = Array.from(new Set([
+        ...userAccesses.map((a) => a.electionId),
+        ...preApprovedIds
+      ]));
+
+      // Visible elections: PUBLIC elections OR private elections voter entered code for / was granted / is pre-approved for
+      const visibleElections = await prisma.election.findMany({
+        where: {
+          OR: [
+            { type: 'PUBLIC' },
+            ...(allowedElectionIds.length > 0 ? [{ id: { in: allowedElectionIds } }] : [])
+          ]
+        },
+        orderBy: { createdOn: 'desc' }
+      });
+
       const participations = await prisma.voterParticipation.findMany({
-        where: { voterId },
+        where: { voterId: userId },
         select: { electionId: true }
       });
       const votedElectionIds = new Set(participations.map((p) => p.electionId));
 
-      const result = allElections.map((e) => {
+      const preApprovedSet = new Set(preApprovedIds);
+
+      const result = visibleElections.map((e) => {
         let hasAccess = false;
         let accessStatus = 'NONE';
 
         if (e.type === 'PUBLIC') {
+          hasAccess = true;
+          accessStatus = 'APPROVED';
+        } else if (preApprovedSet.has(e.id)) {
           hasAccess = true;
           accessStatus = 'APPROVED';
         } else {
@@ -71,24 +105,49 @@ const getElections = async (req, res) => {
       return res.json({ error: false, elections: result });
     }
 
-    const elections = await prisma.election.findMany({
-      include: {
-        createdBy: {
-          select: { id: true, email: true, username: true, firstname: true, lastname: true }
-        },
-        _count: {
-          select: {
-            positions: true,
-            votes: true,
-            accessGrants: true,
-            participations: true
+    if (isAdmin && userId) {
+      // Admin only sees elections that THEY created (unless Super Admin)
+      const whereClause = isSuperAdmin ? {} : { createdById: userId };
+
+      const elections = await prisma.election.findMany({
+        where: whereClause,
+        include: {
+          createdBy: {
+            select: { id: true, email: true, username: true, firstname: true, lastname: true }
+          },
+          _count: {
+            select: {
+              positions: true,
+              votes: true,
+              accessGrants: true,
+              participations: true
+            }
           }
-        }
+        },
+        orderBy: { createdOn: 'desc' }
+      });
+
+      return res.json({ error: false, elections });
+    }
+
+    // Default for guest / unauthenticated: return ONLY Public elections
+    const publicElections = await prisma.election.findMany({
+      where: { type: 'PUBLIC' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        type: true,
+        startDate: true,
+        endDate: true,
+        status: true,
+        resultsPublic: true,
+        createdOn: true
       },
       orderBy: { createdOn: 'desc' }
     });
 
-    return res.json({ error: false, elections });
+    return res.json({ error: false, elections: publicElections });
   } catch (error) {
     return res.status(500).json({ error: true, message: error.message });
   }
@@ -121,21 +180,48 @@ const getElectionById = async (req, res) => {
       return res.status(404).json({ error: true, message: 'Election not found' });
     }
 
+    const roleLower = req.user?.role?.toLowerCase();
+    const isAdmin = roleLower === 'admin' || roleLower === 'super_admin';
+    const isSuperAdmin = roleLower === 'super_admin';
+    const isVoter = roleLower === 'voter';
+
+    // Admin security check: admin can only access election they created
+    if (isAdmin && !isSuperAdmin && election.createdById && election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You do not have permission to manage this election' });
+    }
+
     let hasVoted = false;
     let hasAccess = false;
     let accessStatus = 'NONE';
 
-    if (req.user?.role === 'voter') {
+    if (isVoter) {
       if (election.type === 'PUBLIC') {
         hasAccess = true;
         accessStatus = 'APPROVED';
       } else {
+        // Check access grants
         const access = await prisma.voterElectionAccess.findFirst({
-          where: { voterId: req.user.id, electionId }
+          where: { voterId: req.user.id, electionId, status: 'APPROVED' }
         });
-        if (access) {
-          accessStatus = access.status;
-          hasAccess = access.status === 'APPROVED';
+
+        // Check pre-approved emails
+        let isPreApproved = false;
+        if (!access && req.user.email) {
+          const pre = await prisma.preApprovedEmail.findFirst({
+            where: { email: req.user.email.toLowerCase().trim(), electionId }
+          });
+          isPreApproved = !!pre;
+        }
+
+        if (access || isPreApproved) {
+          hasAccess = true;
+          accessStatus = 'APPROVED';
+        } else {
+          // Private election without access -> Deny access
+          return res.status(403).json({
+            error: true,
+            message: 'This is a private election. Access is restricted to pre-approved voters.'
+          });
         }
       }
 
@@ -143,9 +229,14 @@ const getElectionById = async (req, res) => {
         where: { voterId: req.user.id, electionId }
       });
       hasVoted = !!participation;
-    } else {
+    } else if (isAdmin) {
       hasAccess = true;
       accessStatus = 'APPROVED';
+    } else {
+      // Unauthenticated
+      if (election.type === 'PRIVATE') {
+        return res.status(403).json({ error: true, message: 'This is a private election. Access restricted.' });
+      }
     }
 
     const { accessCode, ...safeElection } = election;
@@ -153,7 +244,7 @@ const getElectionById = async (req, res) => {
     return res.json({
       error: false,
       election: {
-        ...(req.user?.role === 'voter' ? safeElection : election),
+        ...(isVoter ? safeElection : election),
         hasAccess,
         accessStatus,
         hasVoted
@@ -227,6 +318,14 @@ const updateElection = async (req, res) => {
       return res.status(404).json({ error: true, message: 'Election not found' });
     }
 
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+
+    // Verify election ownership
+    if (!isSuperAdmin && existing.createdById && existing.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only update elections you created' });
+    }
+
     const electionType = type ? type.toUpperCase() : existing.type;
 
     let finalAccessCode = existing.accessCode;
@@ -281,6 +380,14 @@ const deleteElection = async (req, res) => {
 
     if (!election) {
       return res.status(404).json({ error: true, message: 'Election not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+
+    // Verify election ownership
+    if (!isSuperAdmin && election.createdById && election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only delete elections you created' });
     }
 
     await prisma.election.delete({
@@ -365,16 +472,31 @@ const joinElectionByAccessCode = async (req, res) => {
     });
     const hasVoted = !!participation;
 
-    // GRANT IMMEDIATE APPROVED ACCESS
+    // Check if voter's email is pre-approved
+    const preApproved = await prisma.preApprovedEmail.findFirst({
+      where: {
+        email: voter.email.toLowerCase().trim(),
+        electionId: targetElection.id
+      }
+    });
+
+    const isPreApproved = !!preApproved;
+    const accessStatus = isPreApproved ? 'APPROVED' : 'PENDING';
+
     const existingAccess = await prisma.voterElectionAccess.findFirst({
       where: { voterId, electionId: targetElection.id }
     });
 
     if (existingAccess) {
-      if (existingAccess.status !== 'APPROVED') {
+      if (existingAccess.status !== 'APPROVED' && isPreApproved) {
         await prisma.voterElectionAccess.update({
           where: { id: existingAccess.id },
-          data: { status: 'APPROVED' }
+          data: { status: 'APPROVED', grantedOn: new Date() }
+        });
+      } else if (existingAccess.status === 'DECLINED') {
+        await prisma.voterElectionAccess.update({
+          where: { id: existingAccess.id },
+          data: { status: accessStatus, requestedAt: new Date() }
         });
       }
     } else {
@@ -382,23 +504,30 @@ const joinElectionByAccessCode = async (req, res) => {
         data: {
           voterId,
           electionId: targetElection.id,
-          status: 'APPROVED'
+          status: accessStatus,
+          requestedAt: new Date(),
+          ...(isPreApproved ? { grantedOn: new Date() } : {})
         }
       });
     }
 
     const { accessCode: _, ...safeElection } = targetElection;
 
+    const message = isPreApproved
+      ? (hasVoted
+          ? `Access verified for "${targetElection.title}". You have already submitted your ballot.`
+          : `Access verified! Your email is pre-approved for "${targetElection.title}". You can now cast your vote.`)
+      : `Access code verified! Your request to join "${targetElection.title}" has been submitted to the administrator for verification & approval.`;
+
     return res.json({
       error: false,
-      status: 'APPROVED',
-      message: hasVoted
-        ? `Access verified for "${targetElection.title}". You have already submitted your ballot.`
-        : `Successfully unlocked "${targetElection.title}"! You can now cast your vote.`,
+      status: accessStatus,
+      isPreApproved,
+      message,
       election: {
         ...safeElection,
-        hasAccess: true,
-        accessStatus: 'APPROVED',
+        hasAccess: isPreApproved,
+        accessStatus,
         hasVoted
       }
     });

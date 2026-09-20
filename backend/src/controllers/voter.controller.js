@@ -4,6 +4,10 @@ const { prisma } = require('../prisma');
 
 const getVoters = async (req, res) => {
   try {
+    const adminId = req.user?.id;
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+
     const voters = await prisma.voter.findMany({
       select: {
         id: true,
@@ -28,8 +32,15 @@ const getVoters = async (req, res) => {
     });
 
     const electionIdParam = req.query.electionId ? parseInt(req.query.electionId, 10) : null;
+    let preWhere = {};
+    if (electionIdParam) {
+      preWhere.electionId = electionIdParam;
+    } else if (!isSuperAdmin && adminId) {
+      preWhere.election = { createdById: adminId };
+    }
+
     const preApprovedEmails = await prisma.preApprovedEmail.findMany({
-      where: electionIdParam ? { electionId: electionIdParam } : undefined,
+      where: preWhere,
       select: {
         id: true,
         email: true,
@@ -205,6 +216,20 @@ const addPreApprovedEmail = async (req, res) => {
     const normalizedEmail = email.trim().toLowerCase();
     const eId = parseInt(electionId, 10);
 
+    const election = await prisma.election.findUnique({
+      where: { id: eId }
+    });
+
+    if (!election) {
+      return res.status(404).json({ error: true, message: 'Election not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && election.createdById && election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only pre-approve voters for your own elections' });
+    }
+
     const existing = await prisma.preApprovedEmail.findFirst({
       where: { email: normalizedEmail, electionId: eId }
     });
@@ -255,6 +280,21 @@ const deletePreApprovedEmail = async (req, res) => {
     const idStr = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const preId = parseInt(idStr, 10);
 
+    const existing = await prisma.preApprovedEmail.findUnique({
+      where: { id: preId },
+      include: { election: true }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: true, message: 'Pre-approved email not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && existing.election?.createdById && existing.election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only remove pre-approved emails for your own elections' });
+    }
+
     await prisma.preApprovedEmail.delete({
       where: { id: preId }
     });
@@ -275,6 +315,20 @@ const grantElectionAccess = async (req, res) => {
 
     const vId = parseInt(voterId, 10);
     const eId = parseInt(electionId, 10);
+
+    const election = await prisma.election.findUnique({
+      where: { id: eId }
+    });
+
+    if (!election) {
+      return res.status(404).json({ error: true, message: 'Election not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && election.createdById && election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only grant access for your own elections' });
+    }
 
     const existing = await prisma.voterElectionAccess.findFirst({
       where: { voterId: vId, electionId: eId }
@@ -315,6 +369,20 @@ const revokeElectionAccess = async (req, res) => {
 
     const vId = parseInt(voterId, 10);
     const eId = parseInt(electionId, 10);
+
+    const election = await prisma.election.findUnique({
+      where: { id: eId }
+    });
+
+    if (!election) {
+      return res.status(404).json({ error: true, message: 'Election not found' });
+    }
+
+    const roleLower = req.user?.role?.toLowerCase();
+    const isSuperAdmin = roleLower === 'super_admin';
+    if (!isSuperAdmin && election.createdById && election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You can only revoke access for your own elections' });
+    }
 
     await prisma.voterElectionAccess.deleteMany({
       where: { voterId: vId, electionId: eId }

@@ -1,11 +1,6 @@
 /** @type {import('next').NextConfig} */
-const backendTarget = (
-  process.env.BACKEND_URL ||
-  process.env.API_URL
-
-)
-  .replace(/\/+$/, '')
-  .replace(/\/api$/, '');
+const rawBackend = process.env.BACKEND_URL || process.env.API_URL || 'http://localhost:5000';
+const backendTarget = rawBackend.replace(/\/+$/, '').replace(/\/api$/, '');
 
 const nextConfig = {
   async rewrites() {

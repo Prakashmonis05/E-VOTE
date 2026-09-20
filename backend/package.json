@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "prisma:generate": "prisma generate",
-    "prisma:db-push": "prisma db push",
+    "prisma:generate": "node -r dotenv/config ./node_modules/prisma/build/index.js generate dotenv_config_path=.env dotenv_config_override=true",
+    "prisma:db-push": "node -r dotenv/config ./node_modules/prisma/build/index.js db push dotenv_config_path=.env dotenv_config_override=true",
     "seed": "node src/seed.js"
   },
   "keywords": [],

@@ -24,8 +24,19 @@ const getBallot = async (req, res) => {
         where: { voterId, electionId: eId, status: 'APPROVED' }
       });
 
-      if (!access) {
-        return res.status(403).json({ error: true, message: 'You do not have access to this election' });
+      let isPreApproved = false;
+      if (!access && req.user?.email) {
+        const pre = await prisma.preApprovedEmail.findFirst({
+          where: { email: req.user.email.toLowerCase().trim(), electionId: eId }
+        });
+        isPreApproved = !!pre;
+      }
+
+      if (!access && !isPreApproved) {
+        return res.status(403).json({
+          error: true,
+          message: 'Access restricted: In private elections, you can only vote after being granted access or if your email is pre-approved by the admin.'
+        });
       }
     }
 
@@ -97,8 +108,19 @@ const submitBallot = async (req, res) => {
         where: { voterId, electionId: eId, status: 'APPROVED' }
       });
 
-      if (!access) {
-        return res.status(403).json({ error: true, message: 'You are not authorized for this election' });
+      let isPreApproved = false;
+      if (!access && voter.email) {
+        const pre = await prisma.preApprovedEmail.findFirst({
+          where: { email: voter.email.toLowerCase().trim(), electionId: eId }
+        });
+        isPreApproved = !!pre;
+      }
+
+      if (!access && !isPreApproved) {
+        return res.status(403).json({
+          error: true,
+          message: 'Access restricted: In private elections, you can only vote after being granted access or if your email is pre-approved by the admin.'
+        });
       }
     }
 
@@ -208,6 +230,32 @@ const getElectionResults = async (req, res) => {
 
     const userRole = req.user?.role?.toUpperCase();
     const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+    const isSuperAdmin = userRole === 'SUPER_ADMIN';
+    const voterId = req.user?.id;
+
+    // Admin scoping check: admin can only view results of their own election
+    if (isAdmin && !isSuperAdmin && election.createdById && election.createdById !== req.user?.id) {
+      return res.status(403).json({ error: true, message: 'You do not have permission to view results for this election' });
+    }
+
+    // Voter access check: if private election, voter must have approved access or pre-approval
+    if (userRole === 'VOTER' && election.type === 'PRIVATE') {
+      const access = await prisma.voterElectionAccess.findFirst({
+        where: { voterId, electionId: eId, status: 'APPROVED' }
+      });
+
+      let isPreApproved = false;
+      if (!access && req.user?.email) {
+        const pre = await prisma.preApprovedEmail.findFirst({
+          where: { email: req.user.email.toLowerCase().trim(), electionId: eId }
+        });
+        isPreApproved = !!pre;
+      }
+
+      if (!access && !isPreApproved) {
+        return res.status(403).json({ error: true, message: 'This is a private election. Access restricted.' });
+      }
+    }
 
     const isResultsLocked = !election.resultsPublic && election.status !== ElectionStatus.COMPLETED;
 
