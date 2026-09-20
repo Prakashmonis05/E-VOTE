@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // ─── In-memory response cache ──────────────────────────────────────────────
 // GET responses are cached for CACHE_TTL ms to eliminate repeated round-trips.
@@ -25,13 +25,13 @@ function _getCached(key) {
           sessionStorage.removeItem(`_c_${key}`);
         }
       }
-    } catch {}
+    } catch { }
   }
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) {
     _cache.delete(key);
     if (typeof window !== 'undefined') {
-      try { sessionStorage.removeItem(`_c_${key}`); } catch {}
+      try { sessionStorage.removeItem(`_c_${key}`); } catch { }
     }
     return null;
   }
@@ -45,7 +45,7 @@ function _setCached(key, data) {
   if (typeof window !== 'undefined') {
     try {
       sessionStorage.setItem(`_c_${key}`, JSON.stringify(entry));
-    } catch {}
+    } catch { }
   }
 }
 
@@ -62,7 +62,7 @@ export function invalidateCache(pattern = '') {
           sessionStorage.removeItem(k);
         }
       }
-    } catch {}
+    } catch { }
   }
 }
 
@@ -86,7 +86,7 @@ export const removeAuthToken = () => {
         const k = sessionStorage.key(i);
         if (k && k.startsWith('_c_')) sessionStorage.removeItem(k);
       }
-    } catch {}
+    } catch { }
   }
 };
 
@@ -121,7 +121,7 @@ export async function fetchApi(endpoint, options = {}) {
       // Return cached data immediately, then silently refresh in background
       _doFetch(endpoint, { ...options, headers }).then((fresh) => {
         _setCached(cacheKey, fresh);
-      }).catch(() => {/* background refresh failed — keep stale data */});
+      }).catch(() => {/* background refresh failed — keep stale data */ });
       return cached;
     }
 
