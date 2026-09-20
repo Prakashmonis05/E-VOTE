@@ -1,4 +1,8 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const rawApiUrl = process.env.BACKEND_URL || '/api';
+const trimmedApiUrl = rawApiUrl.replace(/\/+$/, '');
+const API_BASE_URL = (trimmedApiUrl === '' || trimmedApiUrl === '/api')
+  ? '/api'
+  : (trimmedApiUrl.endsWith('/api') ? trimmedApiUrl : `${trimmedApiUrl}/api`);
 
 // ─── In-memory response cache ──────────────────────────────────────────────
 // GET responses are cached for CACHE_TTL ms to eliminate repeated round-trips.
@@ -149,7 +153,8 @@ export async function fetchApi(endpoint, options = {}) {
 }
 
 async function _doFetch(endpoint, options) {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const response = await fetch(`${API_BASE_URL}${cleanEndpoint}`, options);
   const data = await response.json();
   if (!response.ok) throw new Error(data.message || 'API Request Failed');
   return data;

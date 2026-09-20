@@ -16,10 +16,32 @@ const adminRoutes = require('./routes/admin.routes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// CORS – cache preflight responses for 24h so the browser stops re-checking
-// on every page navigation (eliminates the invisible OPTIONS round trip delay)
+// CORS configuration supporting single or comma-separated FRONTEND_URL, localhost, and Vercel
+const rawFrontendUrls = (process.env.FRONTEND_URL || 'http://localhost:3000')
+  .split(',')
+  .map((u) => u.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow non-browser requests (e.g. server-to-server, curl, Postman)
+    if (!origin) return callback(null, true);
+
+    const isLocalhost = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+    const isVercel = /\.vercel\.app$/.test(origin);
+    const isAllowed = rawFrontendUrls.includes(origin) || rawFrontendUrls.includes('*');
+
+    if (isLocalhost || isVercel || isAllowed) {
+      return callback(null, true);
+    }
+
+    // Default allow if FRONTEND_URL is not specifically set
+    if (!process.env.FRONTEND_URL) {
+      return callback(null, true);
+    }
+
+    return callback(null, false);
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
