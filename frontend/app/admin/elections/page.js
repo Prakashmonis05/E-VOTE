@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, CheckSquare, Edit, Trash2, Calendar, Clock, Key, AlertCircle, Settings, BarChart2 } from 'lucide-react';
+import { Plus, CheckSquare, Edit, Trash2, Calendar, Clock, Key, AlertCircle, Settings, BarChart2, Copy, Check } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 
 export default function AdminElectionsPage() {
@@ -13,10 +13,12 @@ export default function AdminElectionsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingElection, setEditingElection] = useState(null);
   const [error, setError] = useState('');
+  const [copiedCode, setCopiedCode] = useState(null);
 
   // Form State
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [type, setType] = useState('PUBLIC');
   const [accessCode, setAccessCode] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -44,7 +46,8 @@ export default function AdminElectionsPage() {
     setEditingElection(null);
     setTitle('');
     setDescription('');
-    setAccessCode(`CODE-${Math.floor(1000 + Math.random() * 9000)}`);
+    setType('PUBLIC');
+    setAccessCode('');
     const today = new Date().toISOString().slice(0, 16);
     const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
     setStartDate(today);
@@ -58,7 +61,9 @@ export default function AdminElectionsPage() {
     setEditingElection(election);
     setTitle(election.title);
     setDescription(election.description || '');
-    setAccessCode(election.accessCode);
+    setType(election.type || 'PUBLIC');
+    const rawCode = election.accessCode || '';
+    setAccessCode(rawCode.startsWith('$2') ? 'SAMCA' : rawCode);
     setStartDate(new Date(election.startDate).toISOString().slice(0, 16));
     setEndDate(new Date(election.endDate).toISOString().slice(0, 16));
     setStatus(election.status);
@@ -72,15 +77,26 @@ export default function AdminElectionsPage() {
     setSaving(true);
 
     try {
+      const payload = {
+        title,
+        description,
+        type,
+        accessCode: type === 'PRIVATE' ? accessCode : null,
+        startDate,
+        endDate,
+        status,
+        resultsPublic
+      };
+
       if (editingElection) {
         await fetchApi(`/elections/${editingElection.id}`, {
           method: 'PUT',
-          body: JSON.stringify({ title, description, accessCode, startDate, endDate, status, resultsPublic })
+          body: JSON.stringify(payload)
         });
       } else {
         await fetchApi('/elections', {
           method: 'POST',
-          body: JSON.stringify({ title, description, accessCode, startDate, endDate, status, resultsPublic })
+          body: JSON.stringify(payload)
         });
       }
 
@@ -150,23 +166,52 @@ export default function AdminElectionsPage() {
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center space-x-2">
                     <span className={`text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider ${
-                      e.status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
-                      e.status === 'completed' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' :
+                      e.status === 'active' || e.status === 'ACTIVE' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                      e.status === 'completed' || e.status === 'COMPLETED' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30' :
                       'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                     }`}>
                       {e.status}
                     </span>
                     <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border ${
+                      e.type === 'PRIVATE'
+                        ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                        : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    }`}>
+                      {e.type === 'PRIVATE' ? '🔒 PRIVATE' : '🌐 PUBLIC'}
+                    </span>
+                    <span className={`text-[11px] px-2.5 py-1 rounded-full font-semibold border ${
                       e.resultsPublic
                         ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
-                        : 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
                     }`}>
                       {e.resultsPublic ? '📊 Live Results' : '🔒 Post-Completion'}
                     </span>
                   </div>
-                  <span className="text-xs font-mono text-slate-400 bg-slate-900 px-2.5 py-1 rounded-lg border border-slate-800">
-                    Code: <strong className="text-indigo-400">{e.accessCode}</strong>
-                  </span>
+                  {e.type === 'PRIVATE' && (
+                    <div className="flex items-center space-x-1.5 text-xs font-mono text-indigo-300 bg-slate-900 border border-indigo-500/30 px-3 py-1 rounded-xl">
+                      <Key className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                      <span className="text-slate-400 font-sans text-[11px]">Code:</span>
+                      <strong className="font-bold tracking-wider text-indigo-200">
+                        {e.accessCode?.startsWith('$2') ? 'SAMCA' : (e.accessCode || 'None')}
+                      </strong>
+                      {e.accessCode && (
+                        <button
+                          type="button"
+                          onClick={(evt) => {
+                            evt.stopPropagation();
+                            const codeToCopy = e.accessCode?.startsWith('$2') ? 'SAMCA' : e.accessCode;
+                            navigator.clipboard.writeText(codeToCopy);
+                            setCopiedCode(e.id);
+                            setTimeout(() => setCopiedCode(null), 2000);
+                          }}
+                          className="text-slate-400 hover:text-white transition-colors ml-1 p-0.5"
+                          title="Copy Access Code"
+                        >
+                          {copiedCode === e.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -259,17 +304,67 @@ export default function AdminElectionsPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Access Code</label>
-                  <input
-                    type="text"
-                    required
-                    value={accessCode}
-                    onChange={(e) => setAccessCode(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-xl px-4 py-3 text-white font-mono uppercase focus:outline-none"
-                  />
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Election Type</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setType('PUBLIC')}
+                    className={`py-3 px-4 rounded-xl font-bold text-xs border transition-all flex items-center justify-center space-x-2 ${
+                      type === 'PUBLIC'
+                        ? 'bg-emerald-600/20 border-emerald-500 text-emerald-400 shadow-md shadow-emerald-500/10'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    <span>🌐 Public (Open to All)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setType('PRIVATE');
+                      if (!accessCode) setAccessCode(`CODE-${Math.floor(1000 + Math.random() * 9000)}`);
+                    }}
+                    className={`py-3 px-4 rounded-xl font-bold text-xs border transition-all flex items-center justify-center space-x-2 ${
+                      type === 'PRIVATE'
+                        ? 'bg-indigo-600/20 border-indigo-500 text-indigo-400 shadow-md shadow-indigo-500/10'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    <span>🔒 Private (Code Protected)</span>
+                  </button>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {type === 'PRIVATE' ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">Access Code</label>
+                      <button
+                        type="button"
+                        onClick={() => setAccessCode(`CODE-${Math.floor(1000 + Math.random() * 9000)}`)}
+                        className="text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline"
+                      >
+                        Generate Random
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={accessCode}
+                      onChange={(e) => setAccessCode(e.target.value)}
+                      placeholder="e.g. SECURE123"
+                      className="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-xl px-4 py-3 text-white font-mono uppercase focus:outline-none"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Access Control</label>
+                    <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-400 font-medium">
+                      No code or whitelist required
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Status</label>
                   <select

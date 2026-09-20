@@ -11,6 +11,17 @@ datasource db {
 // ENUMS
 // ----------------------------------------------------
 
+enum ElectionType {
+  PUBLIC
+  PRIVATE
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  DECLINED
+}
+
 enum ElectionStatus {
   PENDING
   ACTIVE
@@ -110,7 +121,8 @@ model Election {
   id            Int            @id @default(autoincrement())
   title         String
   description   String?
-  accessCode    String         @unique @map("access_code")
+  type          ElectionType   @default(PUBLIC) @map("type")
+  accessCode    String?        @map("access_code")
   startDate     DateTime       @map("start_date")
   endDate       DateTime       @map("end_date")
   status        ElectionStatus @default(PENDING)
@@ -168,10 +180,12 @@ model Candidate {
 }
 
 model VoterElectionAccess {
-  id         Int      @id @default(autoincrement())
-  voterId    Int      @map("voter_id")
-  electionId Int      @map("election_id")
-  grantedOn  DateTime @default(now()) @map("granted_on")
+  id          Int                 @id @default(autoincrement())
+  voterId     Int                 @map("voter_id")
+  electionId  Int                 @map("election_id")
+  status      AccessRequestStatus @default(APPROVED) @map("status")
+  requestedAt DateTime            @default(now()) @map("requested_at")
+  grantedOn   DateTime            @default(now()) @map("granted_on")
 
   // Relationships
   voter    Voter    @relation(fields: [voterId], references: [id], onDelete: Cascade)

@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Plus, Edit, Trash2, ArrowUp, ArrowDown, UserPlus, AlertCircle, ShieldCheck, User, Mail, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, ArrowUp, ArrowDown, UserPlus, AlertCircle, ShieldCheck, User, Mail, CheckCircle, Key, Copy, Check } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 
 export default function ElectionDetailAdminPage({ params }) {
@@ -14,11 +14,14 @@ export default function ElectionDetailAdminPage({ params }) {
   const [election, setElection] = useState(null);
   const [positions, setPositions] = useState([]);
   const [preApprovedEmails, setPreApprovedEmails] = useState([]);
+  const [accessRequests, setAccessRequests] = useState([]);
+  const [reqActionLoading, setReqActionLoading] = useState(null);
   const [newPreEmail, setNewPreEmail] = useState('');
   const [preLoading, setPreLoading] = useState(false);
   const [preMsg, setPreMsg] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Position Modal State
   const [showPosModal, setShowPosModal] = useState(false);
@@ -44,18 +47,35 @@ export default function ElectionDetailAdminPage({ params }) {
   const loadElectionDetails = async () => {
     try {
       setLoading(true);
-      const [data, votersData] = await Promise.all([
+      const [data, votersData, requestsData] = await Promise.all([
         fetchApi(`/elections/${electionId}`),
-        fetchApi('/voters')
+        fetchApi('/voters'),
+        fetchApi(`/voters/access-requests/${electionId}`).catch(() => ({ requests: [] }))
       ]);
       setElection(data.election);
       setPositions(data.election?.positions || []);
       const allPre = votersData.preApprovedEmails || [];
       setPreApprovedEmails(allPre.filter((p) => p.electionId === electionId));
+      setAccessRequests(requestsData.requests || []);
     } catch (err) {
       setError(err.message || 'Failed to load details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRespondAccessRequest = async (requestId, status) => {
+    setReqActionLoading(requestId);
+    try {
+      await fetchApi(`/voters/access-requests/${requestId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status })
+      });
+      loadElectionDetails();
+    } catch (err) {
+      alert(err.message || 'Failed to update access request');
+    } finally {
+      setReqActionLoading(null);
     }
   };
 
@@ -235,7 +255,37 @@ export default function ElectionDetailAdminPage({ params }) {
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold uppercase">
                 {election?.status}
               </span>
-              <span className="text-xs font-mono text-indigo-400">Code: {election?.accessCode}</span>
+              <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold uppercase border ${
+                election?.type === 'PRIVATE'
+                  ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+              }`}>
+                {election?.type === 'PRIVATE' ? '🔒 PRIVATE' : '🌐 PUBLIC'}
+              </span>
+              {election?.type === 'PRIVATE' && (
+                <div className="flex items-center space-x-1.5 text-xs font-mono text-indigo-300 bg-slate-900 border border-indigo-500/30 px-3 py-0.5 rounded-full">
+                  <Key className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span className="text-slate-400 font-sans text-[11px]">Access Code:</span>
+                  <strong className="font-bold tracking-wider text-indigo-200">
+                    {election.accessCode?.startsWith('$2') ? 'SAMCA' : (election.accessCode || 'None')}
+                  </strong>
+                  {election.accessCode && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const codeToCopy = election.accessCode?.startsWith('$2') ? 'SAMCA' : election.accessCode;
+                        navigator.clipboard.writeText(codeToCopy);
+                        setCopiedCode(true);
+                        setTimeout(() => setCopiedCode(false), 2000);
+                      }}
+                      className="text-slate-400 hover:text-white transition-colors ml-1 p-0.5"
+                      title="Copy Access Code"
+                    >
+                      {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <h1 className="text-3xl font-black text-white mt-1">{election?.title}</h1>
           </div>
@@ -249,6 +299,72 @@ export default function ElectionDetailAdminPage({ params }) {
           </button>
         </div>
       </div>
+
+      {/* Access Requests for Private Elections */}
+      {election?.type === 'PRIVATE' && (
+        <div className="glass-panel p-6 rounded-3xl border border-indigo-500/20 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-lg font-bold text-white flex items-center space-x-2">
+                <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                <span>Access Requests ({accessRequests.length})</span>
+              </h3>
+              <p className="text-slate-400 text-xs mt-0.5">
+                Manage voter access request approvals for this private election.
+              </p>
+            </div>
+            <span className="text-xs px-2.5 py-1 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-400 font-bold uppercase">
+              Private Election
+            </span>
+          </div>
+
+          {accessRequests.length === 0 ? (
+            <p className="text-xs text-slate-500 py-3 italic">No access requests received for this election yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {accessRequests.map((req) => (
+                <div key={req.id} className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-white text-sm">
+                        {req.voter?.firstname} {req.voter?.lastname}
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                        req.status === 'APPROVED' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                        req.status === 'DECLINED' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30' :
+                        'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                      }`}>
+                        {req.status}
+                      </span>
+                    </div>
+                    <p className="text-xs font-mono text-indigo-300">{req.voter?.email}</p>
+                    <p className="text-[11px] text-slate-500">
+                      Requested: {new Date(req.requestedAt).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handleRespondAccessRequest(req.id, 'APPROVED')}
+                      disabled={reqActionLoading === req.id || req.status === 'APPROVED'}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 disabled:opacity-40 transition-all"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => handleRespondAccessRequest(req.id, 'DECLINED')}
+                      disabled={reqActionLoading === req.id || req.status === 'DECLINED'}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 disabled:opacity-40 transition-all"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pre-Approved Emails for this Election */}
       <div className="glass-panel p-6 rounded-3xl border border-indigo-500/20 space-y-4">

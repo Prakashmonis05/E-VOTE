@@ -72,7 +72,7 @@ export default function Home() {
           </div>
           <h3 className="text-xl font-bold text-white">Flexible Election Config</h3>
           <p className="text-slate-400 text-sm leading-relaxed">
-            Set custom positions, position candidate limits (`max_vote`), priority order, and unique voter access codes.
+            Set custom positions, position candidate limits, priority order, and unique voter access codes.
           </p>
         </div>
       </div>

@@ -27,17 +27,18 @@ export default function AdminDashboardPage() {
 
   const loadDashboardData = async () => {
     try {
-      setLoading(true);
+      if (!stats) setLoading(true);
       const data = await fetchApi('/admin/stats');
-      setStats(data.stats);
-      setRecentLogs(data.recentLogs || []);
-      setRecentElections(data.recentElections || []);
+      if (data.stats) setStats(data.stats);
+      if (data.recentLogs) setRecentLogs(data.recentLogs);
+      if (data.recentElections) setRecentElections(data.recentElections);
     } catch (err) {
       console.error('Failed to load admin stats:', err);
     } finally {
       setLoading(false);
     }
   };
+
 
   return (
     <div className="space-y-8">
@@ -51,7 +52,7 @@ export default function AdminDashboardPage() {
           <h1 className="text-3xl font-black text-white">
             System Overview & Management
           </h1>
-          <p className="text-slate-400 text-sm">Logged in as <strong className="text-emerald-400">{user?.username}</strong> ({user?.firstname} {user?.lastname})</p>
+          <p className="text-slate-400 text-sm" suppressHydrationWarning>Logged in as <strong className="text-emerald-400">{user?.username}</strong> ({user?.firstname} {user?.lastname})</p>
         </div>
 
         <Link
@@ -72,12 +73,12 @@ export default function AdminDashboardPage() {
               <CheckSquare className="w-4 h-4" />
             </div>
           </div>
-          {loading ? (
+          {loading && !stats ? (
             <div className="h-9 w-16 bg-slate-800 animate-pulse rounded-lg my-1" />
           ) : (
             <p className="text-3xl font-black text-white">{stats?.totalElections ?? 0}</p>
           )}
-          <p className="text-xs text-emerald-400 font-semibold">{loading ? '...' : (stats?.activeElections ?? 0)} Currently Active</p>
+          <p className="text-xs text-emerald-400 font-semibold">{loading && !stats ? '...' : (stats?.activeElections ?? 0)} Currently Active</p>
         </div>
 
         <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-2">
@@ -87,7 +88,7 @@ export default function AdminDashboardPage() {
               <Users className="w-4 h-4" />
             </div>
           </div>
-          {loading ? (
+          {loading && !stats ? (
             <div className="h-9 w-16 bg-slate-800 animate-pulse rounded-lg my-1" />
           ) : (
             <p className="text-3xl font-black text-white">{stats?.totalVoters ?? 0}</p>
@@ -102,7 +103,7 @@ export default function AdminDashboardPage() {
               <Vote className="w-4 h-4" />
             </div>
           </div>
-          {loading ? (
+          {loading && !stats ? (
             <div className="h-9 w-16 bg-slate-800 animate-pulse rounded-lg my-1" />
           ) : (
             <p className="text-3xl font-black text-white">{stats?.totalCandidates ?? 0}</p>
@@ -117,7 +118,7 @@ export default function AdminDashboardPage() {
               <Activity className="w-4 h-4" />
             </div>
           </div>
-          {loading ? (
+          {loading && !stats ? (
             <div className="h-9 w-16 bg-slate-800 animate-pulse rounded-lg my-1" />
           ) : (
             <p className="text-3xl font-black text-white">{stats?.totalVotes ?? 0}</p>
@@ -149,7 +150,7 @@ export default function AdminDashboardPage() {
                 <div key={e.id} className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between">
                   <div>
                     <h4 className="font-bold text-white text-sm">{e.title}</h4>
-                    <p className="text-xs text-slate-400">Code: <span className="font-mono text-indigo-300">{e.accessCode}</span> • Status: <span className="uppercase text-emerald-400 font-bold text-[10px]">{e.status}</span></p>
+                    <p className="text-xs text-slate-400">Type: <span className="font-bold text-indigo-300">{e.type === 'PRIVATE' || e.isPrivate ? '🔒 Private' : '🌐 Public'}</span> • Status: <span className="uppercase text-emerald-400 font-bold text-[10px]">{e.status}</span></p>
                   </div>
                   <Link
                     href={`/admin/elections/${e.id}`}
@@ -182,13 +183,16 @@ export default function AdminDashboardPage() {
             ) : (
               recentLogs.map((log) => (
                 <div key={log.id} className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-bold text-slate-200 uppercase bg-slate-800 px-2 py-0.5 rounded text-[10px] mr-2">
-                      {log.action}
-                    </span>
-                    <span className="text-slate-300 font-medium">{log.target || 'N/A'}</span>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-slate-200 uppercase bg-slate-800 px-2 py-0.5 rounded text-[10px]">
+                        {log.action}
+                      </span>
+                      <span className="text-slate-300 font-medium">{log.target || log.targetId || 'N/A'}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-mono">By: {log.adminUsername || log.admin?.username || 'Admin'}</p>
                   </div>
-                  <span className="text-slate-500">{new Date(log.timestamp).toLocaleDateString()}</span>
+                  <span className="text-slate-500 shrink-0">{new Date(log.timestamp).toLocaleDateString()}</span>
                 </div>
               ))
             )}

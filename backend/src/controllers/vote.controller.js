@@ -19,12 +19,14 @@ const getBallot = async (req, res) => {
       return res.status(404).json({ error: true, message: 'Election not found' });
     }
 
-    const access = await prisma.voterElectionAccess.findFirst({
-      where: { voterId, electionId: eId }
-    });
+    if (election.type === 'PRIVATE') {
+      const access = await prisma.voterElectionAccess.findFirst({
+        where: { voterId, electionId: eId, status: 'APPROVED' }
+      });
 
-    if (!access) {
-      return res.status(403).json({ error: true, message: 'You do not have access to this election' });
+      if (!access) {
+        return res.status(403).json({ error: true, message: 'You do not have access to this election' });
+      }
     }
 
     const participation = await prisma.voterParticipation.findFirst({
@@ -41,9 +43,11 @@ const getBallot = async (req, res) => {
       }
     });
 
+    const { accessCode, ...safeElection } = election;
+
     return res.json({
       error: false,
-      election,
+      election: safeElection,
       hasVoted,
       positions,
       receiptToken: participation?.receiptToken || null
@@ -88,20 +92,22 @@ const submitBallot = async (req, res) => {
       return res.status(400).json({ error: true, message: 'This election is not active' });
     }
 
+    if (election.type === 'PRIVATE') {
+      const access = await prisma.voterElectionAccess.findFirst({
+        where: { voterId, electionId: eId, status: 'APPROVED' }
+      });
+
+      if (!access) {
+        return res.status(403).json({ error: true, message: 'You are not authorized for this election' });
+      }
+    }
+
     const existingParticipation = await prisma.voterParticipation.findFirst({
       where: { voterId, electionId: eId }
     });
 
     if (existingParticipation) {
       return res.status(400).json({ error: true, message: 'You have already voted in this election' });
-    }
-
-    const access = await prisma.voterElectionAccess.findFirst({
-      where: { voterId, electionId: eId }
-    });
-
-    if (!access) {
-      return res.status(403).json({ error: true, message: 'You are not authorized for this election' });
     }
 
     const positions = await prisma.position.findMany({
@@ -203,14 +209,14 @@ const getElectionResults = async (req, res) => {
     const userRole = req.user?.role?.toUpperCase();
     const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
 
-    if (!isAdmin) {
-      if (!election.resultsPublic && election.status !== ElectionStatus.COMPLETED) {
-        return res.status(403).json({
-          error: true,
-          resultsLocked: true,
-          message: 'Results for this election will be published after completion.'
-        });
-      }
+    const isResultsLocked = !election.resultsPublic && election.status !== ElectionStatus.COMPLETED;
+
+    if (!isAdmin && isResultsLocked) {
+      return res.status(403).json({
+        error: true,
+        resultsLocked: true,
+        message: 'Results for this election will be published after completion.'
+      });
     }
 
     const totalTurnout = await prisma.voterParticipation.count({
@@ -218,10 +224,40 @@ const getElectionResults = async (req, res) => {
     });
 
     const totalAccessGrants = await prisma.voterElectionAccess.count({
-      where: { electionId: eId }
+      where: { electionId: eId, status: 'APPROVED' }
     });
 
     const totalVotersSystem = await prisma.voter.count();
+
+    const stats = {
+      voterTurnout: totalTurnout,
+      eligibleVoters: totalAccessGrants > 0 ? totalAccessGrants : totalVotersSystem,
+      turnoutPercentage: totalAccessGrants > 0
+        ? ((totalTurnout / totalAccessGrants) * 100).toFixed(1)
+        : totalVotersSystem > 0
+        ? ((totalTurnout / totalVotersSystem) * 100).toFixed(1)
+        : 0
+    };
+
+    if (isResultsLocked) {
+      return res.json({
+        error: false,
+        resultsLocked: true,
+        message: 'Results: 🔒 Hidden until election ends',
+        election: {
+          id: election.id,
+          title: election.title,
+          description: election.description,
+          status: election.status,
+          startDate: election.startDate,
+          endDate: election.endDate,
+          resultsPublic: election.resultsPublic,
+          type: election.type
+        },
+        stats,
+        results: []
+      });
+    }
 
     const results = election.positions.map((pos) => {
       const candidates = pos.candidates.map((cand) => ({
@@ -250,25 +286,18 @@ const getElectionResults = async (req, res) => {
 
     return res.json({
       error: false,
+      resultsLocked: false,
       election: {
         id: election.id,
         title: election.title,
         description: election.description,
-        accessCode: election.accessCode,
         status: election.status,
         startDate: election.startDate,
         endDate: election.endDate,
-        resultsPublic: election.resultsPublic
+        resultsPublic: election.resultsPublic,
+        type: election.type
       },
-      stats: {
-        voterTurnout: totalTurnout,
-        eligibleVoters: totalAccessGrants > 0 ? totalAccessGrants : totalVotersSystem,
-        turnoutPercentage: totalAccessGrants > 0
-          ? ((totalTurnout / totalAccessGrants) * 100).toFixed(1)
-          : totalVotersSystem > 0
-          ? ((totalTurnout / totalVotersSystem) * 100).toFixed(1)
-          : 0
-      },
+      stats,
       results
     });
   } catch (error) {

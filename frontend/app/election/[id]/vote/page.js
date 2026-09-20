@@ -163,7 +163,10 @@ export default function VotePage({ params }) {
             <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold uppercase tracking-wider">
               Official Active Ballot
             </span>
-            <span className="text-xs text-slate-400">Access Code: <strong className="text-indigo-400 font-mono">{election?.accessCode}</strong></span>
+            <span className="text-xs text-slate-400 flex items-center space-x-1.5 bg-slate-900 border border-slate-800 px-3 py-1 rounded-xl">
+              <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{election?.type === 'PRIVATE' ? 'Private Verified Ballot' : 'Public Ballot'}</span>
+            </span>
           </div>
           <h1 className="text-3xl font-black text-white">{election?.title}</h1>
           <p className="text-slate-400 text-sm">{election?.description || 'Select your preferred candidates for each position below.'}</p>
@@ -202,29 +205,38 @@ export default function VotePage({ params }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {pos.candidates.map((cand) => {
                     const isSelected = selectedForPos.includes(cand.id);
+                    const initials = `${cand.firstname?.[0] || 'C'}${cand.lastname?.[0] || ''}`.toUpperCase();
                     return (
                       <div
                         key={cand.id}
                         onClick={() => handleSelectCandidate(pos.id, cand.id, pos.maxVote)}
-                        className={`cursor-pointer rounded-2xl p-5 border transition-all duration-200 flex items-start space-x-4 ${
+                        className={`cursor-pointer rounded-2xl p-4 sm:p-5 border transition-all duration-200 flex items-start space-x-3.5 relative group ${
                           isSelected
-                            ? 'bg-indigo-600/15 border-indigo-500 shadow-lg shadow-indigo-500/10'
-                            : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                            ? 'bg-indigo-950/40 border-indigo-500 ring-2 ring-indigo-500/30 shadow-lg shadow-indigo-500/20'
+                            : 'glass-card border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/80'
                         }`}
                       >
-                        <div className={`w-6 h-6 rounded-${pos.maxVote === 1 ? 'full' : 'lg'} border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                          isSelected ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-slate-700 bg-slate-950'
+                        <div className={`w-5 h-5 rounded-${pos.maxVote === 1 ? 'full' : 'md'} border flex items-center justify-center shrink-0 mt-1 transition-all ${
+                          isSelected ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm shadow-indigo-500/50' : 'border-slate-700 bg-slate-950/80'
                         }`}>
-                          {isSelected && <Check className="w-4 h-4 stroke-[3]" />}
+                          {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                         </div>
 
-                        <div className="space-y-1 flex-1">
-                          <h4 className="font-bold text-white text-base">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-950 to-slate-900 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300 shrink-0">
+                          {initials}
+                        </div>
+
+                        <div className="space-y-1 flex-1 min-w-0">
+                          <h4 className={`font-bold text-base transition-colors ${isSelected ? 'text-white' : 'text-slate-200 group-hover:text-white'}`}>
                             {cand.firstname} {cand.lastname}
                           </h4>
-                          {cand.platform && (
+                          {cand.platform ? (
                             <p className="text-slate-400 text-xs leading-relaxed line-clamp-2">
                               {cand.platform}
+                            </p>
+                          ) : (
+                            <p className="text-slate-500 text-xs italic">
+                              No platform statement provided
                             </p>
                           )}
                         </div>
@@ -238,19 +250,26 @@ export default function VotePage({ params }) {
         })}
       </div>
 
-      <div className="sticky bottom-6 glass-panel p-4 sm:p-6 rounded-2xl border border-indigo-500/30 flex items-center justify-between shadow-2xl bg-slate-950/90 backdrop-blur-xl">
-        <div className="space-y-0.5">
-          <p className="text-xs text-slate-400">Total Selections</p>
-          <p className="text-lg font-bold text-white">{totalSelectionsCount} Candidates Selected</p>
+      <div className="sticky bottom-4 z-40 glass-panel p-4 sm:p-5 rounded-2xl border border-indigo-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xl bg-slate-950/95 backdrop-blur-xl">
+        <div className="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-start">
+          <div className="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+            <Vote className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Total Selections Made</p>
+            <p className="text-base font-bold text-white">
+              {totalSelectionsCount} {totalSelectionsCount === 1 ? 'Candidate' : 'Candidates'} Selected
+            </p>
+          </div>
         </div>
 
         <button
           onClick={() => setShowConfirmModal(true)}
           disabled={totalSelectionsCount === 0}
-          className="px-8 py-3.5 rounded-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-xl shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-40 flex items-center space-x-2"
+          className="w-full sm:w-auto px-7 py-3 rounded-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-xl shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center space-x-2 text-sm"
         >
-          <Vote className="w-5 h-5" />
-          <span>Review & Submit Ballot</span>
+          <Vote className="w-4 h-4" />
+          <span>Review & Submit Official Ballot</span>
         </button>
       </div>
 

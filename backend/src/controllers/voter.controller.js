@@ -5,17 +5,40 @@ const { prisma } = require('../prisma');
 const getVoters = async (req, res) => {
   try {
     const voters = await prisma.voter.findMany({
-      include: {
+      select: {
+        id: true,
+        email: true,
+        votersId: true,
+        firstname: true,
+        lastname: true,
+        photo: true,
+        status: true,
+        createdOn: true,
         accessGrants: {
-          include: { election: true }
-        },
-        participations: true
+          select: {
+            id: true,
+            electionId: true,
+            status: true,
+            requestedAt: true,
+            grantedOn: true
+          }
+        }
       },
       orderBy: { id: 'desc' }
     });
 
+    const electionIdParam = req.query.electionId ? parseInt(req.query.electionId, 10) : null;
     const preApprovedEmails = await prisma.preApprovedEmail.findMany({
-      include: { election: true, addedBy: true },
+      where: electionIdParam ? { electionId: electionIdParam } : undefined,
+      select: {
+        id: true,
+        email: true,
+        electionId: true,
+        createdOn: true,
+        addedBy: {
+          select: { id: true, email: true, username: true }
+        }
+      },
       orderBy: { createdOn: 'desc' }
     });
 
@@ -259,7 +282,12 @@ const grantElectionAccess = async (req, res) => {
 
     if (!existing) {
       await prisma.voterElectionAccess.create({
-        data: { voterId: vId, electionId: eId }
+        data: { voterId: vId, electionId: eId, status: 'APPROVED' }
+      });
+    } else if (existing.status !== 'APPROVED') {
+      await prisma.voterElectionAccess.update({
+        where: { id: existing.id },
+        data: { status: 'APPROVED' }
       });
     }
 
@@ -298,6 +326,117 @@ const revokeElectionAccess = async (req, res) => {
   }
 };
 
+const getElectionAccessRequests = async (req, res) => {
+  try {
+    const idStr = Array.isArray(req.params.electionId) ? req.params.electionId[0] : req.params.electionId;
+    const eId = parseInt(idStr, 10);
+
+    const election = await prisma.election.findUnique({
+      where: { id: eId }
+    });
+
+    if (!election) {
+      return res.status(404).json({ error: true, message: 'Election not found' });
+    }
+
+    if (election.createdById && election.createdById !== req.user?.id && req.user?.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: true, message: 'You can only view access requests for elections you created' });
+    }
+
+    const requests = await prisma.voterElectionAccess.findMany({
+      where: { electionId: eId },
+      include: {
+        voter: {
+          select: { id: true, firstname: true, lastname: true, email: true, photo: true }
+        }
+      },
+      orderBy: { requestedAt: 'desc' }
+    });
+
+    return res.json({ error: false, requests });
+  } catch (error) {
+    return res.status(500).json({ error: true, message: error.message });
+  }
+};
+
+const respondToAccessRequest = async (req, res) => {
+  try {
+    const idStr = Array.isArray(req.params.requestId) ? req.params.requestId[0] : req.params.requestId;
+    const reqId = parseInt(idStr, 10);
+    const { status } = req.body;
+
+    const upperStatus = status ? status.toUpperCase() : null;
+    if (!upperStatus || (upperStatus !== 'APPROVED' && upperStatus !== 'DECLINED')) {
+      return res.status(400).json({ error: true, message: 'Status must be APPROVED or DECLINED' });
+    }
+
+    const request = await prisma.voterElectionAccess.findUnique({
+      where: { id: reqId },
+      include: {
+        election: true,
+        voter: true
+      }
+    });
+
+    if (!request) {
+      return res.status(404).json({ error: true, message: 'Access request not found' });
+    }
+
+    if (request.election.createdById && request.election.createdById !== req.user?.id && req.user?.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: true, message: 'You can only respond to access requests for your own elections' });
+    }
+
+    const updated = await prisma.voterElectionAccess.update({
+      where: { id: reqId },
+      data: {
+        status: upperStatus,
+        ...(upperStatus === 'APPROVED' ? { grantedOn: new Date() } : {})
+      },
+      include: {
+        voter: {
+          select: { id: true, firstname: true, lastname: true, email: true }
+        }
+      }
+    });
+
+    if (upperStatus === 'APPROVED') {
+      const existingPre = await prisma.preApprovedEmail.findFirst({
+        where: {
+          electionId: request.electionId,
+          email: request.voter.email.toLowerCase().trim()
+        }
+      });
+
+      if (!existingPre) {
+        await prisma.preApprovedEmail.create({
+          data: {
+            email: request.voter.email.toLowerCase().trim(),
+            electionId: request.electionId,
+            addedById: req.user?.id
+          }
+        }).catch(() => {});
+      }
+    }
+
+    await prisma.adminLog.create({
+      data: {
+        adminId: req.user?.id,
+        action: `ACCESS_REQUEST_${upperStatus}`,
+        targetId: request.voter.email,
+        metadata: { requestId: reqId, electionId: request.electionId, voterId: request.voterId }
+      }
+    });
+
+    return res.json({
+      error: false,
+      message: `Access request ${upperStatus.toLowerCase()} successfully`,
+      accessRequest: updated
+    });
+  } catch (error) {
+    return res.status(500).json({ error: true, message: error.message });
+  }
+};
+
 module.exports = {
   getVoters,
   createVoter,
@@ -307,5 +446,8 @@ module.exports = {
   addPreApprovedEmail,
   deletePreApprovedEmail,
   grantElectionAccess,
-  revokeElectionAccess
+  revokeElectionAccess,
+  getElectionAccessRequests,
+  respondToAccessRequest
 };
+
